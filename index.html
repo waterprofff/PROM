@@ -307,6 +307,16 @@
                 margin: 4px 0;
             }
         </style>
+<style>
+/* Generic style for capped article column */
+th.col-article, td.col-article {
+  max-width: 400px !important;
+  width: 400px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>
 </head>
 <body>
 <div class="header">
@@ -20763,7 +20773,6 @@
                     });
             });
         </script>
-
 <script>
 (function(){
   function parseRateFromPage(){
@@ -20853,6 +20862,247 @@
   } else {
     recalc();
   }
+})();
+</script>
+<script>
+(function(){
+  function norm(s){ return (s||"").toString().trim().toLowerCase().replace(/\s+/g,' '); }
+
+  // mark 'Артикул' column cells with class col-article
+  var tables = document.querySelectorAll('table');
+  tables.forEach(function(table){
+    var headerRow = null;
+    var trs = table.querySelectorAll('tr');
+    for (var i=0;i<trs.length;i++){ if (trs[i].querySelector('th')){ headerRow = trs[i]; break; } }
+    if (!headerRow) return;
+    var ths = Array.prototype.slice.call(headerRow.querySelectorAll('th'));
+    var idxArticle = -1;
+    ths.forEach(function(th, i){
+      var t = norm(th.textContent || '');
+      if (idxArticle<0 && (t === 'артикул' || t.indexOf('арт') === 0)) idxArticle = i;
+    });
+    if (idxArticle < 0) return;
+    // mark header cell
+    if (ths[idxArticle]) ths[idxArticle].classList.add('col-article');
+    // mark body cells in that column
+    for (var r=headerRow.rowIndex+1; r<trs.length; r++){
+      var tr = trs[r];
+      if (tr.querySelector('th')) continue;
+      var tds = tr.querySelectorAll('td');
+      if (tds.length > idxArticle) {
+        tds[idxArticle].classList.add('col-article');
+      }
+    }
+  });
+
+  // 2) Replace "Курс ЦБ на ..." date with today's date (ru-RU)
+  var today = new Date();
+  var dd = String(today.getDate()).padStart(2,'0');
+  var mm = String(today.getMonth()+1).padStart(2,'0');
+  var yyyy = String(today.getFullYear());
+  var dateStr = dd + '.' + mm + '.' + yyyy;
+  // Look through all elements; if text starts with "Курс ЦБ на", update the date part.
+  var all = document.querySelectorAll('body *');
+  all.forEach(function(el){
+    var t = (el.childNodes && el.childNodes.length === 1 && el.childNodes[0].nodeType === 3) ? el.textContent.trim() : null;
+    if (!t) return;
+    if (/^Курс\s*ЦБ\s*на/i.test(t)){
+      el.textContent = t.replace(/^Курс\s*ЦБ\s*на.*/i, 'Курс ЦБ на ' + dateStr);
+    }
+  });
+})();
+</script>
+<script>
+(function(){
+  // Format today's date as DD.MM.YYYY
+  var d = new Date();
+  var dd = String(d.getDate()).padStart(2,'0');
+  var mm = String(d.getMonth()+1).padStart(2,'0');
+  var yyyy = String(d.getFullYear());
+  var todayStr = dd + '.' + mm + '.' + yyyy;
+
+  // Walk all text nodes and replace only the date part in phrases like "Курс ЦБ на 02.11.2025"
+  var walker = document.createTreeWalker(document.body || document, NodeFilter.SHOW_TEXT, null, false);
+  var re = /(Курс\s*ЦБ\s*на\s*)(\d{1,2}\.\d{1,2}(?:\.\d{2,4})?)/i;
+  var nodes = [];
+  while (walker.nextNode()) { nodes.push(walker.currentNode); }
+  nodes.forEach(function(node){
+    var t = node.nodeValue;
+    if (!t) return;
+    if (re.test(t)){
+      node.nodeValue = t.replace(re, function(_, p1){ return p1 + todayStr; });
+    }
+  });
+})();
+</script>
+<script>
+(function(){
+  function norm(s){ return (s||"").toString().trim().toLowerCase().replace(/\s+/g,' '); }
+  function parseRub(text){
+    if (!text) return null;
+    var t = String(text).replace(/\u00A0/g,' ').replace(/\s/g,'');
+    var m = t.match(/-?\d+(?:[.,]\d+)?/);
+    if (!m) return null;
+    return parseFloat(m[0].replace(',', '.'));
+  }
+  function formatPct(v){
+    if (!isFinite(v)) return '';
+    // round to whole percent
+    var n = Math.round(v);
+    return String(n) + ' %';
+  }
+  /**
+   * Locate the index of the existing hidden discount column in the table header.
+   *
+   * The price tables include a hidden column labelled "Скидка, %" as a
+   * <th class="protected-col"> element. We do not want to insert a new visible
+   * header for discounts – instead, we simply compute the discount value and
+   * populate the corresponding hidden cell.  This function scans the
+   * header cells and returns the index of the one whose text normalises
+   * to "скидка, %".  If such a header cannot be found, it returns -1.
+   *
+   * @param {HTMLTableHeaderCellElement[]} ths An array of header cells.
+   * @returns {number} The index of the discount column or -1 if not found.
+   */
+  function findDiscountIndex(ths) {
+    for (var i = 0; i < ths.length; i++) {
+      var txt = norm(ths[i].textContent || '');
+      if (txt === 'скидка, %') {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function recalcDiscount(){
+    var tables = document.querySelectorAll('table');
+    tables.forEach(function(table){
+      // find header row (first with th)
+      var trs = table.querySelectorAll('tr');
+      var headerRow = null;
+      for (var i=0;i<trs.length;i++){ if (trs[i].querySelector('th')){ headerRow = trs[i]; break; } }
+      if (!headerRow) return;
+      var ths = Array.prototype.slice.call(headerRow.querySelectorAll('th'));
+      var idxRrcRub = -1, idxOptRub = -1;
+      ths.forEach(function(th, i){
+        var t = norm(th.textContent||'');
+        if (idxRrcRub<0 && (t==='ррц, руб' || t==='ррц руб' || t==='ррц, руб.' || t==='ррц в руб' || t==='ррц, ₽' || t==='ррц, рубли')) idxRrcRub = i;
+        if (idxOptRub<0 && (/^опт/.test(t) && (t.indexOf('руб')>-1 || t.indexOf('₽')>-1))) idxOptRub = i;
+      });
+      if (idxRrcRub < 0 || idxOptRub < 0) return;
+
+      // determine the index of the existing hidden discount column
+      var idxDisc = findDiscountIndex(ths);
+      // if no discount column is defined, do nothing
+      if (idxDisc < 0) return;
+
+      // walk rows
+      for (var r=headerRow.rowIndex+1; r<trs.length; r++){
+        var tr = trs[r];
+        // skip header rows
+        if (tr.querySelector('th')) continue;
+        // current cells
+        var tds = tr.querySelectorAll('td');
+        // If a visible discount cell from an older version exists immediately after
+        // the "Опт, руб" column, convert it into the hidden discount column by
+        // adding the "protected-col" class.  This preserves the column count and
+        // hides the discount while still allowing our calculation to populate
+        // the value.  We identify the candidate cell by taking the index one
+        // position after idxOptRub and checking that it is neither already a
+        // protected column nor an image cell.
+        var candidateIdx = idxOptRub + 1;
+        if (candidateIdx < tds.length) {
+          var cand = tds[candidateIdx];
+          if (!cand.classList.contains('protected-col') && !cand.classList.contains('imgcell')) {
+            cand.classList.add('protected-col');
+            // refresh the NodeList after class modification
+            tds = tr.querySelectorAll('td');
+          }
+        }
+        // After potential removal, ensure there are enough cells to compute
+        if (tds.length <= Math.max(idxRrcRub, idxOptRub)) continue;
+        // skip rows that lack the hidden discount column
+        if (tds.length <= idxDisc) continue;
+        var rrc = parseRub(tds[idxRrcRub].textContent);
+        var opt = parseRub(tds[idxOptRub].textContent);
+        if (rrc == null || !isFinite(rrc) || rrc === 0 || opt == null || !isFinite(opt)) {
+          // leave empty if cannot compute
+          tds[idxDisc].textContent = '';
+          continue;
+        }
+        var disc = (rrc - opt) / rrc * 100;
+        if (disc < 0) disc = 0; // clamp negative discounts to 0
+        tds[idxDisc].textContent = formatPct(disc);
+      }
+    });
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', recalcDiscount);
+  } else {
+    recalcDiscount();
+  }
+  // re-run discount calc after a tick to incorporate any dynamic RRC recalculation
+  setTimeout(recalcDiscount, 50);
+})();
+</script>
+
+<script>
+(function(){
+  function parseRub(text){
+    if (!text) return NaN;
+    var t = String(text).replace(/\u00A0/g,' ').replace(/\s/g,'');
+    var m = t.match(/-?\d+(?:[.,]\d+)?/);
+    return m ? parseFloat(m[0].replace(',', '.')) : NaN;
+  }
+  function fmtPctInt(v){
+    if (!isFinite(v)) return '';
+    return String(Math.round(v)) + '%';
+  }
+  function norm(s){ return (s||'').toString().trim().toLowerCase().replace(/\s+/g,' '); }
+  function ensureHiddenCell(tr){
+    var cells = tr.querySelectorAll('td');
+    for (var i = cells.length - 1; i >= 0; i--) {
+      if (cells[i].classList.contains('protected-col')) return cells[i];
+    }
+    var beforeImg = tr.querySelector('td.imgcell');
+    var td = document.createElement('td');
+    td.className = 'protected-col';
+    if (beforeImg) beforeImg.insertAdjacentElement('beforebegin', td);
+    else tr.appendChild(td);
+    return td;
+  }
+  function recalcDiscountHidden(){
+    var tables = document.querySelectorAll('table.price');
+    tables.forEach(function(table){
+      var trs = Array.from(table.querySelectorAll('tr'));
+      var headerRow = trs.find(function(tr){ return tr.querySelector('th'); });
+      if (!headerRow) return;
+      var ths = Array.from(headerRow.querySelectorAll('th'));
+      var idxRrcRub = -1, idxOptRub = -1;
+      ths.forEach(function(th, i){
+        var t = norm(th.textContent||'');
+        if (idxRrcRub < 0 && (t==='ррц, руб' || t==='ррц руб' || t==='ррц, руб.' || t==='ррц в руб' || t==='ррц, ₽' || t==='ррц, рубли')) idxRrcRub = i;
+        if (idxOptRub < 0 && (/^опт/.test(t) && (t.includes('руб') || t.includes('₽')))) idxOptRub = i;
+      });
+      if (idxRrcRub < 0 || idxOptRub < 0) return;
+      trs.forEach(function(tr){
+        if (tr === headerRow || tr.querySelector('th')) return;
+        var tds = tr.querySelectorAll('td');
+        if (tds.length <= Math.max(idxRrcRub, idxOptRub)) return;
+        var rrc = parseRub(tds[idxRrcRub].textContent);
+        var opt = parseRub(tds[idxOptRub].textContent);
+        var target = ensureHiddenCell(tr);
+        if (!isFinite(rrc) || rrc <= 0 || !isFinite(opt)) { target.textContent = ''; return; }
+        var pct = (rrc - opt) / rrc * 100;
+        if (pct < 0) pct = 0;
+        target.textContent = fmtPctInt(pct);
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', recalcDiscountHidden);
+  else recalcDiscountHidden();
+  setTimeout(recalcDiscountHidden, 100);
 })();
 </script>
 </body>
