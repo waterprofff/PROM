@@ -3,7 +3,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8"/>
-<title>ПРАЙС-ЛИСТ Гейзер ПРОМ (обновлённый)</title>
+<title>ПРАЙС-ЛИСТ Гейзер ПРОМ</title>
 <style>
             /* оверлей для увеличенного фото */
             .zoom-overlay {
@@ -328,11 +328,15 @@ th.col-article, td.col-article {
 <input class="input-small" id="discount" max="99" min="0" placeholder="0" step="1" type="number"/>
 <button class="btn primary" id="applyDiscount">Пересчитать</button>
 <button class="btn" id="resetDiscount">Сброс</button>
-</div>
+
+
 <div class="group">
 <button class="btn" id="downloadXls">Скачать Excel (без фото)</button>
 <button class="btn" id="downloadPdf">Скачать PDF с фото</button>
 </div>
+</div>
+<div class="group">
+<a class="btn" href="https://waterprofff.github.io/price_AZ/" target="_blank">Перейти в бытовой прайс</a></div>
 </div>
 <div class="group">
 <label for="pricePass">Пароль:</label>
@@ -352,7 +356,6 @@ th.col-article, td.col-article {
 </div>
 <div class="container">
 <div class="kursy"></div>
-<h2>Промышленный прайс</h2>
 <h2>
 				Вопросы, пожелания, обратная связь по прайсу —
 				<a href="mailto:zaa@geizer.com">zaa@geizer.com</a> Алексей Жуков
@@ -21108,7 +21111,6 @@ th.col-article, td.col-article {
   setTimeout(recalcDiscountHidden, 100);
 })();
 </script>
-
 <style>
   .row-hidden { display: none !important; }
 </style>
@@ -21163,7 +21165,43 @@ th.col-article, td.col-article {
     if (!idxs || !Array.isArray(idxs)) return;
     const keep = new Uint8Array(allRows.length);
     idxs.forEach(i => { if (i>=0 && i<keep.length) keep[i] = 1; });
-    for (let i=0;i<allRows.length;i++){ if (!keep[i]) allRows[i].classList.add('row-hidden'); }
+    var kept=0;
+for (let i=0;i<allRows.length;i++){
+  if (!keep[i]) allRows[i].classList.add('row-hidden');
+  else kept++;
+}
+// toggle categories visibility
+(function(){
+  var table = document.querySelector('table.price');
+  if (!table) return;
+  var headers = table.querySelectorAll('tbody tr.category-main, tbody tr.category-sub, tbody tr.category-sub2');
+  headers.forEach(function(h){
+    var anyVisible = false;
+    var cur = h.nextElementSibling;
+    while (cur && cur.tagName === 'TR' &&
+           !cur.classList.contains('category-main') &&
+           !cur.classList.contains('category-sub') &&
+           !cur.classList.contains('category-sub2')){
+      if (!cur.classList.contains('row-hidden')) { anyVisible = true; break; }
+      cur = cur.nextElementSibling;
+    }
+    if (anyVisible) h.classList.remove('row-hidden'); else h.classList.add('row-hidden');
+  });
+})();
+// show/hide noResults hint
+(function(){
+  var noRes = document.getElementById('noResults');
+  if (!noRes) return;
+  if (kept===0){
+    var q = document.getElementById('q');
+    var qv = q ? q.value : '';
+    var url = 'https://waterprofff.github.io/price_AZ/' + (qv ? ('?q='+encodeURIComponent(qv)) : '');
+    noRes.style.display='';
+    noRes.innerHTML = 'Ничего не найдено. <a href="'+url+'" target="_blank">Искать в бытовом прайсе</a>';
+  } else {
+    noRes.style.display='none';
+  }
+})();
   };
 
   input.addEventListener('keydown', (ev) => {
@@ -21176,6 +21214,30 @@ th.col-article, td.col-article {
   });
 
   window.addEventListener('beforeunload', () => { try { worker.terminate(); } catch(e){} });
+})();
+</script>
+
+<script>
+(function(){
+  var btns = Array.from(document.querySelectorAll('button, a'));
+  var resetBtn = btns.find(function(b){
+    var t = (b.innerText || b.textContent || '').trim().toLowerCase();
+    return t === 'сброс' || t === 'сбросить';
+  });
+  if (resetBtn){
+    resetBtn.addEventListener('click', function(){
+      // clear input and show all rows & categories
+      var q = document.getElementById('q');
+      if (q) q.value = '';
+      // reuse applyFilter(null) if present in scope
+      try { (window.applyFilter || function(){})(null); } catch(e){}
+      // fallback: unhide all
+      var rows = document.querySelectorAll('table.price tbody tr');
+      rows.forEach(function(tr){ tr.classList.remove('row-hidden'); });
+      var noRes = document.getElementById('noResults');
+      if (noRes) noRes.style.display = 'none';
+    }, {capture:true});
+  }
 })();
 </script>
 </body>
