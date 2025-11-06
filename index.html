@@ -21046,7 +21046,6 @@ th.col-article, td.col-article {
   setTimeout(recalcDiscount, 50);
 })();
 </script>
-
 <script>
 (function(){
   function parseRub(text){
@@ -21103,6 +21102,76 @@ th.col-article, td.col-article {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', recalcDiscountHidden);
   else recalcDiscountHidden();
   setTimeout(recalcDiscountHidden, 100);
+})();
+</script>
+
+<style>
+  .row-hidden { display: none !important; }
+</style>
+<script>
+(function () {
+  const original = document.getElementById('q');
+  const table = document.querySelector('table.price');
+  if (!original || !table) return;
+
+  // Drop old listeners
+  const input = original.cloneNode(true);
+  original.parentNode.replaceChild(input, original);
+
+  // Product rows only
+  const allRows = Array.from(table.querySelectorAll('tbody tr')).filter(tr =>
+    !tr.classList.contains('category-main') &&
+    !tr.classList.contains('category-sub') &&
+    !tr.classList.contains('category-sub2') &&
+    !tr.classList.contains('fixed-price')
+  );
+
+  const norm = s => String(s||'').toLowerCase().replace(/\\u00a0/g,' ').replace(/\\s+/g,' ').trim();
+  const rowsIndex = allRows.map(tr => norm(tr.textContent || ''));
+
+  const workerCode = `
+    let corpus = [];
+    const norm = s => String(s||'').toLowerCase().replace(/\\u00a0/g,' ').replace(/\\s+/g,' ').trim();
+    onmessage = (e) => {
+      const {type, payload} = e.data || {};
+      if (type === 'init') { corpus = payload || []; return; }
+      if (type === 'search') {
+        const q = norm(payload||'');
+        if (!q) { postMessage({type:'result', idxs:null}); return; }
+        const terms = q.split(' ').filter(Boolean);
+        const matched = [];
+        for (let i=0;i<corpus.length;i++){
+          const row = corpus[i];
+          let ok = true;
+          for (const t of terms){ if (row.indexOf(t)===-1){ ok=false; break; } }
+          if (ok) matched.push(i);
+        }
+        postMessage({type:'result', idxs: matched});
+      }
+    };
+  `;
+  const blob = new Blob([workerCode], { type: 'application/javascript' });
+  const worker = new Worker(URL.createObjectURL(blob));
+  worker.postMessage({ type: 'init', payload: rowsIndex });
+
+  const applyFilter = (idxs) => {
+    allRows.forEach(tr => tr.classList.remove('row-hidden'));
+    if (!idxs || !Array.isArray(idxs)) return;
+    const keep = new Uint8Array(allRows.length);
+    idxs.forEach(i => { if (i>=0 && i<keep.length) keep[i] = 1; });
+    for (let i=0;i<allRows.length;i++){ if (!keep[i]) allRows[i].classList.add('row-hidden'); }
+  };
+
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter'){ ev.preventDefault(); worker.postMessage({type:'search', payload: input.value}); }
+    else if (ev.key === 'Escape'){ input.value=''; applyFilter(null); }
+  });
+
+  worker.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'result') applyFilter(e.data.idxs);
+  });
+
+  window.addEventListener('beforeunload', () => { try { worker.terminate(); } catch(e){} });
 })();
 </script>
 </body>
